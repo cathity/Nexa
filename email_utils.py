@@ -50,18 +50,18 @@ def send_reset_code(to_email, code):
     msg.attach(MIMEText(html_content, "html"))
 
     try:
-        #timeout
+        # Dodaj timeout dla bezpieczeństwa
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as smtp:
             smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             smtp.send_message(msg)
-            print(f"✓ Email z kodem resetującym wysłany do: {to_email}")
+            print(f"Email z kodem resetującym wysłany do: {to_email}")
             return True
     except smtplib.SMTPAuthenticationError:
-        print("✗ Błąd uwierzytelniania - sprawdź login i hasło")
+        print("Błąd uwierzytelniania - sprawdź login i hasło")
         return False
     except smtplib.SMTPException as e:
-        print(f"✗ Błąd SMTP: {e}")
+        print(f"Błąd SMTP: {e}")
         return False
     except Exception as e:
-        print(f"✗ Nieoczekiwany błąd: {e}")
+        print(f"Nieoczekiwany błąd: {e}")
         return False

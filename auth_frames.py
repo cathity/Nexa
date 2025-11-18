@@ -203,13 +203,12 @@ class ForgotPasswordPage(tk.Frame):
                 messagebox.showerror("Błąd", "Podaj poprawny adres email.")
                 return
 
-            # Pokaz loading message
+            # loading message
             self.request_btn.config(state="disabled", text="Wysyłanie...")
             self.update()
 
             success, result = set_reset_code(email)
 
-            # Przywróć przycisk
             self.request_btn.config(state="normal", text="Wyślij kod resetujący")
 
             if success:
@@ -221,7 +220,6 @@ class ForgotPasswordPage(tk.Frame):
                 reset_page.set_email(email)
             else:
                 messagebox.showerror("Błąd", result)
-
 
         self.request_btn = tk.Button(
             self, text="Wyślij kod resetujący",
