@@ -67,7 +67,13 @@ class LoginPage(tk.Frame):
 
             user_data = login_user(username, password)
             if user_data:
-                controller.show_frame("NotepadApplication", user_data) #przekazanie dannych
+                # 👇 ZMIENIONE: Sprawdzamy czy email jest zweryfikowany
+                if not user_data.get("verified", True):
+                    messagebox.showwarning("Email niezweryfikowany",
+                                           "Twój email nie został jeszcze zweryfikowany.\n"
+                                           "Sprawdź skrzynkę pocztową i wprowadź kod weryfikacyjny.")
+                else:
+                    controller.show_frame("NotepadApplication", user_data)
             else:
                 messagebox.showerror("Błąd", "Niepoprawny login lub hasło.")
 
@@ -151,7 +157,9 @@ class RegisterPage(tk.Frame):
             ok, msg = register_user(username, email, p1)
             if ok:
                 messagebox.showinfo("Sukces", "Konto zostało utworzone!")
-                controller.show_frame("LoginPage")
+                verification_page = controller.get_frame("EmailVerificationPage")
+                verification_page.set_email(email)
+                controller.show_frame("EmailVerificationPage")
             else:
                 messagebox.showerror("Błąd", msg)
 
@@ -323,3 +331,77 @@ class ResetPasswordPage(tk.Frame):
         self.code_entry.config(bg=colors["entry_bg"], fg=colors["entry_fg"], insertbackground=colors["fg_primary"])
         self.pass1_entry.config(bg=colors["entry_bg"], fg=colors["entry_fg"], insertbackground=colors["fg_primary"])
         self.pass2_entry.config(bg=colors["entry_bg"], fg=colors["entry_fg"], insertbackground=colors["fg_primary"])
+
+
+class EmailVerificationPage(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent)
+        self.controller = controller
+        self.email = ""
+
+        self.label = tk.Label(self, text="Weryfikacja Emaila", font=controller.title_font)
+        self.label.pack(pady=40)
+
+        self.info_label = tk.Label(self, text="Wprowadź 6-cyfrowy kod wysłany na Twój email:",
+                                  font=controller.label_font, wraplength=400)
+        self.info_label.pack(pady=(10, 20))
+
+        self.code_label = tk.Label(self, text="Kod weryfikacyjny:", font=controller.label_font)
+        self.code_label.pack(pady=(10, 0))
+        self.code_entry = tk.Entry(self, font=controller.label_font, width=30, relief="solid", bd=1)
+        self.code_entry.pack(pady=5, ipady=4)
+
+        from auth_controller import verify_email_code, resend_verification_code
+
+        def verify_code():
+            code = self.code_entry.get()
+            if not code or len(code) != 6:
+                messagebox.showerror("Błąd", "Podaj 6-cyfrowy kod weryfikacyjny.")
+                return
+
+            success, message = verify_email_code(self.email, code)
+            if success:
+                messagebox.showinfo("Sukces", message)
+                controller.show_frame("LoginPage")
+            else:
+                messagebox.showerror("Błąd", message)
+
+        def resend_code():
+            success, message = resend_verification_code(self.email)
+            if success:
+                messagebox.showinfo("Kod wysłany", message)
+            else:
+                messagebox.showerror("Błąd", message)
+
+        self.verify_btn = tk.Button(
+            self, text="Zweryfikuj email",
+            font=controller.button_font,
+            bg="#27ae60", fg="white",
+            command=verify_code
+        )
+        self.verify_btn.pack(pady=20, ipadx=10, ipady=5)
+
+        self.resend_btn = tk.Button(
+            self, text="Wyślij nowy kod",
+            font=controller.button_font,
+            bg="#3498db", fg="white",
+            command=resend_code
+        )
+        self.resend_btn.pack(pady=10, ipadx=10, ipady=5)
+
+        self.back_btn = tk.Button(self, text="Wróć do logowania",
+                                  font=controller.button_font,
+                                  bg="#95a5a6", fg="white",
+                                  command=lambda: controller.show_frame("LoginPage"))
+        self.back_btn.pack(pady=10, ipadx=10, ipady=5)
+
+    def set_email(self, email):
+        self.email = email
+        self.info_label.config(text=f"Wprowadź 6-cyfrowy kod wysłany na:\n{email}")
+
+    def update_theme(self, colors):
+        self.config(bg=colors["bg_primary"])
+        self.label.config(bg=colors["bg_primary"], fg=colors["fg_primary"])
+        self.info_label.config(bg=colors["bg_primary"], fg=colors["fg_primary"])
+        self.code_label.config(bg=colors["bg_primary"], fg=colors["fg_primary"])
+        self.code_entry.config(bg=colors["entry_bg"], fg=colors["entry_fg"], insertbackground=colors["fg_primary"])

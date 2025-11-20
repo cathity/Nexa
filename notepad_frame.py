@@ -274,7 +274,7 @@ class NotepadApplication(tk.Frame):
         note_data = {
             "title": title,
             "content": content,
-            "user_id": self.current_user_id  # 👈 WAŻNE: dodajemy user_id
+            "user_id": self.current_user_id  
         }
 
         if self.current_note_index is not None:
@@ -288,7 +288,7 @@ class NotepadApplication(tk.Frame):
             self.search_var.set("")
             self.populate_notes_list()
 
-            # Zaznaczamy zapisaną notatkę
+            # zapisana notatka
             try:
                 display_index = self.displayed_notes_indices.index(self.current_note_index)
                 self.notes_listbox.selection_set(display_index)

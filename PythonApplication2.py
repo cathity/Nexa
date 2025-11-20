@@ -3,7 +3,7 @@ from tkinter import font as tkfont
 import sys
 
 try:
-    from auth_frames import StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage
+    from auth_frames import StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage, EmailVerificationPage
     from notepad_frame import NotepadApplication
 except ImportError as e:
     print(
@@ -63,7 +63,7 @@ class MainApp(tk.Tk):
         self.container.grid_columnconfigure(0, weight=1)
 
 
-        frames_list = [StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage, NotepadApplication]
+        frames_list = [StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage,  EmailVerificationPage, NotepadApplication]
 
         self.frames = {}
         for F in frames_list:
