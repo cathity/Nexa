@@ -10,15 +10,12 @@ class NotepadApplication(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, bg="white")
         self.controller = controller
+        self.current_user_id = None
         self.all_notes = []
         self.current_note_index = None
-
-        # Lista przechowująca indeksy aktualnie wyświetlanych notatek (potrzebne przy filtrowaniu)
         self.displayed_notes_indices = []
 
-        self.load_notes_from_file()
-
-        # --- STRUKTURA INTERFEJSU ---
+        # struktura interfejsu
         self.paned_window = tk.PanedWindow(self, orient="horizontal", sashrelief="raised")
         self.paned_window.pack(fill="both", expand=True)
 
@@ -34,7 +31,7 @@ class NotepadApplication(tk.Frame):
         self.search_frame.pack(fill="x", padx=5, pady=(0, 5))
 
         self.search_var = tk.StringVar()
-        # Uruchom filtrowanie przy każdej zmianie tekstu
+        #filtrowanie przy każdej zmianie tekstu
         self.search_var.trace_add("write", self.filter_notes)
 
         search_label = tk.Label(self.search_frame, text="Szukaj:", font=("Helvetica", 10))
@@ -42,7 +39,7 @@ class NotepadApplication(tk.Frame):
 
         self.search_entry = tk.Entry(self.search_frame, textvariable=self.search_var, font=("Helvetica", 10))
         self.search_entry.pack(side="left", fill="x", expand=True, padx=(5, 0))
-        # ----------------------------------
+
 
         self.notes_listbox = tk.Listbox(self.list_frame, font=("Helvetica", 12),
                                         relief="flat", highlightthickness=0,
@@ -69,7 +66,11 @@ class NotepadApplication(tk.Frame):
 
         self.paned_window.add(self.editor_frame, width=600)
 
-        # Wypełnij listę na start
+
+    def set_current_user(self, user_id):
+        """Ustaw ID zalogowanego użytkownika i załaduj jego notatki"""
+        self.current_user_id = user_id
+        self.load_notes_from_file()
         self.populate_notes_list()
 
     def create_notepad_menu(self):
@@ -92,11 +93,21 @@ class NotepadApplication(tk.Frame):
                                   command=self.controller.toggle_theme)
 
         settings_menu.add_separator()
-        settings_menu.add_command(label="Wyloguj", command=lambda: self.controller.show_frame("StartPage"))
+        settings_menu.add_command(label="Wyloguj", command=self.logout)
         settings_menu.add_separator()
         settings_menu.add_command(label="Wyjdź", command=self.controller.quit_app)
 
         self.update_theme(self.controller.colors)
+
+    def logout(self):
+        """Wyloguj użytkownika i wyczyść dane"""
+        self.current_user_id = None
+        self.all_notes = []
+        self.current_note_index = None
+        self.title_entry.delete(0, tk.END)
+        self.notepad_text.delete(1.0, tk.END)
+        self.notes_listbox.delete(0, tk.END)
+        self.controller.show_frame("StartPage")
 
     def update_theme(self, colors):
         '''Aktualizuje wszystkie kolory w tej ramce'''
@@ -130,7 +141,6 @@ class NotepadApplication(tk.Frame):
                 child.config(bg=colors["bg_primary"], fg=colors["fg_primary"])
             elif isinstance(child, tk.Entry):
                 child.config(bg=colors["entry_bg"], fg=colors["entry_fg"], insertbackground=colors["fg_primary"])
-        # -----------------------------------------
 
         self.notes_listbox.config(bg=colors["list_bg"], fg=colors["list_fg"],
                                   selectbackground=colors["list_highlight"],
@@ -145,22 +155,59 @@ class NotepadApplication(tk.Frame):
 
     # --- FUNKCJE OBSŁUGI NOTATEK ---
     def load_notes_from_file(self):
+        """Teraz ładujemy tylko notatki danego użytkownika"""
+        if not self.current_user_id:
+            self.all_notes = []
+            return
+
         if os.path.exists(NOTES_FILE):
             try:
                 with open(NOTES_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.all_notes = data.get("notes", [])
+                    # filtracja notatek po user_id
+                    self.all_notes = [
+                        note for note in data.get("notes", [])
+                        if note.get("user_id") == self.current_user_id
+                    ]
             except json.JSONDecodeError:
                 self.all_notes = []
         else:
             self.all_notes = []
 
     def save_notes_to_file(self):
+        """Zapisujemy wszystkie notatki, ale dodajemy user_id"""
+        if not self.current_user_id:
+            messagebox.showerror("Błąd", "Nie jesteś zalogowany!")
+            return False
+
+        # Wczytywanie notatek wszystkich użytkowników
+        all_users_notes = []
+        if os.path.exists(NOTES_FILE):
+            try:
+                with open(NOTES_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    all_users_notes = data.get("notes", [])
+            except json.JSONDecodeError:
+                all_users_notes = []
+
+        # usuwanie starych notatek  użytkownika
+        all_users_notes = [
+            note for note in all_users_notes
+            if note.get("user_id") != self.current_user_id
+        ]
+
+
+        for note in self.all_notes:
+            note["user_id"] = self.current_user_id
+            all_users_notes.append(note)
+
         try:
             with open(NOTES_FILE, "w", encoding="utf-8") as f:
-                json.dump({"notes": self.all_notes}, f, indent=4, ensure_ascii=False)
+                json.dump({"notes": all_users_notes}, f, indent=4, ensure_ascii=False)
+            return True
         except Exception as e:
-            messagebox.showerror("Błąd zapisu", f"Nie udało się zapisać pliku notes.json: {e}")
+            messagebox.showerror("Błąd zapisu", f"Nie udało się zapisać: {e}")
+            return False
 
     # --- Funkcja filtrująca ---
     def filter_notes(self, *args):
@@ -169,12 +216,12 @@ class NotepadApplication(tk.Frame):
 
     def populate_notes_list(self, filter_text=""):
         self.notes_listbox.delete(0, tk.END)
-        self.displayed_notes_indices = []  # Resetujemy mapowanie indeksów
+        self.displayed_notes_indices = []  # Reset mapowania indeksów
 
         for index, note in enumerate(self.all_notes):
             title = note.get("title", "Brak tytułu")
-            # Sprawdź, czy tytuł zaczyna się od szukanej frazy
-            if title.lower().startswith(filter_text):
+            # Sprawdź, czy tytuł zawiera szukaną frazę
+            if filter_text in title.lower():
                 self.notes_listbox.insert(tk.END, title)
                 self.displayed_notes_indices.append(index)
 
@@ -198,6 +245,10 @@ class NotepadApplication(tk.Frame):
         self.notepad_text.insert(1.0, note.get("content", ""))
 
     def file_new(self):
+        if not self.current_user_id:
+            messagebox.showerror("Błąd", "Musisz być zalogowany, aby tworzyć notatki!")
+            return
+
         self.title_entry.delete(0, tk.END)
         self.notepad_text.delete(1.0, tk.END)
         self.current_note_index = None
@@ -209,31 +260,40 @@ class NotepadApplication(tk.Frame):
         messagebox.showinfo("Nowa notatka", "Wpisz tytuł i treść, a następnie naciśnij 'Zapisz notatkę'.")
 
     def file_save(self):
+        if not self.current_user_id:
+            messagebox.showerror("Błąd", "Musisz być zalogowany, aby zapisywać notatki!")
+            return
+
         title = self.title_entry.get()
         content = self.notepad_text.get(1.0, tk.END).strip()
+
         if not title:
             messagebox.showwarning("Brak tytułu", "Notatka musi mieć tytuł, aby ją zapisać.")
             return
-        note_data = {"title": title, "content": content}
+
+        note_data = {
+            "title": title,
+            "content": content,
+            "user_id": self.current_user_id  # 👈 WAŻNE: dodajemy user_id
+        }
+
         if self.current_note_index is not None:
             self.all_notes[self.current_note_index] = note_data
         else:
             self.all_notes.append(note_data)
             self.current_note_index = len(self.all_notes) - 1
 
-        self.save_notes_to_file()
+        if self.save_notes_to_file():
+            # Czyścimy wyszukiwanie po zapisie, żeby nowa notatka była widoczna
+            self.search_var.set("")
+            self.populate_notes_list()
 
-        # Czyścimy wyszukiwanie po zapisie, żeby nowa notatka była widoczna
-        self.search_var.set("")
-        self.populate_notes_list()
+            # Zaznaczamy zapisaną notatkę
+            try:
+                display_index = self.displayed_notes_indices.index(self.current_note_index)
+                self.notes_listbox.selection_set(display_index)
+                self.notes_listbox.see(display_index)
+            except ValueError:
+                pass
 
-        # Zaznaczamy zapisaną notatkę
-        try:
-
-            display_index = self.displayed_notes_indices.index(self.current_note_index)
-            self.notes_listbox.selection_set(display_index)
-            self.notes_listbox.see(display_index)
-        except ValueError:
-            pass
-
-        messagebox.showinfo("Zapisano", f"Notatka '{title}' została zapisana.")
+            messagebox.showinfo("Zapisano", f"Notatka '{title}' została zapisana.")

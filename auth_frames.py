@@ -65,10 +65,12 @@ class LoginPage(tk.Frame):
             username = self.login_entry.get()
             password = self.pass_entry.get()
 
-            if login_user(username, password):
-                controller.show_frame("NotepadApplication")
+            user_data = login_user(username, password)
+            if user_data:
+                controller.show_frame("NotepadApplication", user_data) #przekazanie dannych
             else:
                 messagebox.showerror("Błąd", "Niepoprawny login lub hasło.")
+
 
         self.login_btn = tk.Button(
             self, text="Zaloguj",

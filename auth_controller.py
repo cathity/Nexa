@@ -1,4 +1,4 @@
-from database import get_connection
+from datebase import get_connection
 from email_utils import send_reset_code
 import random
 import string
@@ -52,11 +52,14 @@ def login_user(username, password):
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+    cur.execute("SELECT id, username FROM users WHERE username=? AND password=?", (username, password))
     user = cur.fetchone()
 
     conn.close()
-    return bool(user)
+
+    if user:
+        return {"id": user[0], "username": user[1]}  # Zwróć dict z user_id
+    return None
 
 
 def generate_reset_code():

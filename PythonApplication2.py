@@ -78,18 +78,19 @@ class MainApp(tk.Tk):
 
         self.show_frame("StartPage")
 
-    def show_frame(self, page_name):
+    def show_frame(self, page_name, user_data=None):
         '''Podnosi wybraną ramkę na wierzch i zarządza menu'''
         frame = self.frames[page_name]
 
         if page_name == "NotepadApplication":
+            if user_data:
+                frame.set_current_user(user_data["id"])
             frame.create_notepad_menu()
         else:
             empty_menu = tk.Menu(self)
             self.config(menu=empty_menu)
 
         frame.tkraise()
-
         self.apply_theme()
 
     def get_frame(self, page_name):
