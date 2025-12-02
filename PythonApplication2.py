@@ -5,6 +5,7 @@ import sys
 try:
     from auth_frames import StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage, EmailVerificationPage
     from notepad_frame import NotepadApplication
+    from calendar_frame import CalendarApplication
 except ImportError as e:
     print(
         f"BŁĄD: Nie można zaimportować ekranów. Upewnij się, że pliki 'auth_frames.py' i 'notepad_frame.py' są w tym samym folderze co ten plik.")
@@ -63,7 +64,7 @@ class MainApp(tk.Tk):
         self.container.grid_columnconfigure(0, weight=1)
 
 
-        frames_list = [StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage,  EmailVerificationPage, NotepadApplication]
+        frames_list = [StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage,  EmailVerificationPage, NotepadApplication, CalendarApplication]
 
         self.frames = {}
         for F in frames_list:
@@ -86,6 +87,10 @@ class MainApp(tk.Tk):
             if user_data:
                 frame.set_current_user(user_data["id"])
             frame.create_notepad_menu()
+        elif page_name == "CalendarApplication":
+            if user_data:
+                frame.set_current_user(user_data["id"])
+            frame.create_calendar_menu()
         else:
             empty_menu = tk.Menu(self)
             self.config(menu=empty_menu)

@@ -1,4 +1,5 @@
-﻿import tkinter as tk
+﻿
+import tkinter as tk
 from tkinter import font as tkfont, messagebox
 
 class StartPage(tk.Frame):
