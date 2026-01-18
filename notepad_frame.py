@@ -169,6 +169,10 @@ class NotepadApplication(tk.Frame):
         settings_menu.add_separator()
         settings_menu.add_command(label="Wyjdź", command=self.controller.quit_app)
 
+
+        main_window.menubar.add_command(label="Przyjaciele", 
+                                        command=lambda: self.controller.show_frame("FriendsPage", {"id": self.current_user_id}))
+
         self.update_theme(self.controller.colors)
 
     def logout(self):
