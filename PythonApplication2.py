@@ -1,15 +1,21 @@
-﻿import tkinter as tk
+import tkinter as tk
 from tkinter import font as tkfont
 import sys
+import os
+import traceback
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from auth_frames import StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage, EmailVerificationPage
     from notepad_frame import NotepadApplication
     from calendar_frame import CalendarApplication
+
+    print("Wszystko zostalo zaimportowane")
 except ImportError as e:
-    print(
-        f"BŁĄD: Nie można zaimportować ekranów. Upewnij się, że pliki 'auth_frames.py' i 'notepad_frame.py' są w tym samym folderze co ten plik.")
-    print(e)
+    print(f"Blad importu: {e}")
+    traceback.print_exc()
+    input("Naciśnij Enter aby wyjść...")
     sys.exit(1)
 
 
