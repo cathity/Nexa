@@ -1,8 +1,7 @@
-
 import tkinter as tk
 from tkinter import messagebox
 from tkcalendar import Calendar
-from database import get_connection
+from supabase_client import get_supabase
 import datetime
 
 
@@ -13,15 +12,12 @@ class CalendarApplication(tk.Frame):
         self.current_user_id = None
         self.selected_date = None
 
-        # Układ: Lewa strona (Kalendarz), Prawa strona (Lista wydarzeń dnia)
         self.paned_window = tk.PanedWindow(self, orient="horizontal", sashrelief="raised")
         self.paned_window.pack(fill="both", expand=True)
 
-        # --- LEWA STRONA: KALENDARZ ---
         self.left_frame = tk.Frame(self.paned_window, padx=10, pady=10)
         self.paned_window.add(self.left_frame)
 
-        # Tworzymy kalendarz
         self.cal = Calendar(self.left_frame, selectmode='day', date_pattern='yyyy-mm-dd')
         self.cal.pack(fill="both", expand=True)
         self.cal.bind("<<CalendarSelected>>", self.on_date_select)
@@ -34,7 +30,6 @@ class CalendarApplication(tk.Frame):
                                  bg="#3498db", fg="white", font=("Helvetica", 10, "bold"))
         self.add_btn.pack(pady=10, fill="x")
 
-        # --- PRAWA STRONA: LISTA WYDARZEŃ ---
         self.right_frame = tk.Frame(self.paned_window, padx=10, pady=10)
         self.paned_window.add(self.right_frame)
 
@@ -66,24 +61,28 @@ class CalendarApplication(tk.Frame):
         # Najpierw czyścimy stare znaczniki
         self.cal.calevent_remove('all')
 
-        if not self.current_user_id: return
+        if not self.current_user_id:
+            return
 
-        conn = get_connection()
-        cur = conn.cursor()
-        # Pobieramy tylko daty
-        cur.execute("SELECT event_date FROM events WHERE user_id=?", (self.current_user_id,))
-        rows = cur.fetchall()
-        conn.close()
+        supabase = get_supabase()
+        if not supabase:
+            return
 
-        for row in rows:
-            date_str = row[0]
-            # Musimy zamienić napis '2023-11-26' na obiekt daty, żeby kalendarz zrozumiał
-            try:
-                date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
-                # Dodajemy znacznik (event) do kalendarza
-                self.cal.calevent_create(date_obj, 'Wydarzenie', 'has_event')
-            except ValueError:
-                pass  # Ignorujemy błędne daty
+        try:
+            # Pobieramy tylko daty
+            response = supabase.table("events").select("event_date").eq("user_id", self.current_user_id).execute()
+
+            for event in response.data or []:
+                date_str = event["event_date"]
+                # Musimy zamienić napis '2023-11-26' na obiekt daty
+                try:
+                    date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+                    # Dodajemy znacznik (event) do kalendarza
+                    self.cal.calevent_create(date_obj, 'Wydarzenie', 'has_event')
+                except ValueError:
+                    pass  # Ignorujemy błędne daty
+        except Exception as e:
+            print(f"Błąd ładowania wydarzeń: {e}")
 
     def on_date_select(self, event):
         self.selected_date = self.cal.get_date()
@@ -94,23 +93,29 @@ class CalendarApplication(tk.Frame):
         self.events_listbox.delete(0, tk.END)
         self.events_listbox.event_ids = []  # Czyścimy listę ID
 
-        if not self.current_user_id: return
+        if not self.current_user_id:
+            return
 
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id, title, description FROM events WHERE user_id=? AND event_date=?",
-                    (self.current_user_id, date_str))
-        rows = cur.fetchall()
-        conn.close()
+        supabase = get_supabase()
+        if not supabase:
+            return
 
-        for row in rows:
-            display_text = f"• {row[1]}"
-            if row[2]: display_text += f" ({row[2]})"
-            self.events_listbox.insert(tk.END, display_text)
-            self.events_listbox.event_ids.append(row[0])
+        try:
+            response = supabase.table("events").select("id, title, description").eq("user_id", self.current_user_id).eq(
+                "event_date", date_str).execute()
+
+            for event in response.data or []:
+                display_text = f"• {event['title']}"
+                if event['description']:
+                    display_text += f" ({event['description']})"
+                self.events_listbox.insert(tk.END, display_text)
+                self.events_listbox.event_ids.append(event["id"])
+        except Exception as e:
+            print(f"Błąd ładowania wydarzeń na dzień: {e}")
 
     def add_event_popup(self):
-        if not self.current_user_id: return
+        if not self.current_user_id:
+            return
 
         top = tk.Toplevel(self)
         top.title("Nowe wydarzenie")
@@ -133,23 +138,32 @@ class CalendarApplication(tk.Frame):
                 messagebox.showwarning("Błąd", "Podaj tytuł!")
                 return
 
-            conn = get_connection()
-            cur = conn.cursor()
-            cur.execute("INSERT INTO events (user_id, event_date, title, description) VALUES (?, ?, ?, ?)",
-                        (self.current_user_id, self.selected_date, title, desc))
-            conn.commit()
-            conn.close()
+            supabase = get_supabase()
+            if not supabase:
+                messagebox.showerror("Błąd", "Brak połączenia z bazą")
+                return
 
-            top.destroy()
+            try:
+                response = supabase.table("events").insert({
+                    "user_id": self.current_user_id,
+                    "event_date": self.selected_date,
+                    "title": title,
+                    "description": desc
+                }).execute()
 
-            self.mark_days_with_events()  # To pomaluje dzień na zielono!
-            self.load_events_for_date(self.selected_date)  # To odświeży listę po prawej
+                top.destroy()
+                self.mark_days_with_events()  # To pomaluje dzień na zielono!
+                self.load_events_for_date(self.selected_date)  # To odświeży listę
+
+            except Exception as e:
+                messagebox.showerror("Błąd", f"Nie udało się zapisać: {e}")
 
         tk.Button(top, text="Zapisz", command=save, bg="#2ecc71", fg="white").pack(pady=15)
 
     def delete_event(self):
         sel = self.events_listbox.curselection()
-        if not sel: return
+        if not sel:
+            return
 
         index = sel[0]
         # Sprawdzamy czy mamy listę ID (zabezpieczenie)
@@ -158,14 +172,16 @@ class CalendarApplication(tk.Frame):
 
         event_id = self.events_listbox.event_ids[index]
 
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM events WHERE id=?", (event_id,))
-        conn.commit()
-        conn.close()
+        supabase = get_supabase()
+        if not supabase:
+            return
 
-        self.mark_days_with_events()  # Jeśli usunięto ostatnie wydarzenie, kolor zniknie
-        self.load_events_for_date(self.selected_date)
+        try:
+            supabase.table("events").delete().eq("id", event_id).execute()
+            self.mark_days_with_events()  # Jeśli usunięto ostatnie wydarzenie, kolor zniknie
+            self.load_events_for_date(self.selected_date)
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Nie udało się usunąć: {e}")
 
     def create_calendar_menu(self):
         main_window = self.controller
