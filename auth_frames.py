@@ -1,4 +1,4 @@
-﻿
+
 import tkinter as tk
 from tkinter import font as tkfont, messagebox
 
@@ -68,6 +68,7 @@ class LoginPage(tk.Frame):
 
             user_data = login_user(username, password)
             if user_data:
+                # \Sprawdzamy czy email jest zweryfikowany
                 if not user_data.get("verified", True):
                     messagebox.showwarning("Email niezweryfikowany",
                                            "Twój email nie został jeszcze zweryfikowany.\n"
@@ -405,4 +406,3 @@ class EmailVerificationPage(tk.Frame):
         self.info_label.config(bg=colors["bg_primary"], fg=colors["fg_primary"])
         self.code_label.config(bg=colors["bg_primary"], fg=colors["fg_primary"])
         self.code_entry.config(bg=colors["entry_bg"], fg=colors["entry_fg"], insertbackground=colors["fg_primary"])
-
