@@ -10,6 +10,7 @@ try:
     from auth_frames import StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage, EmailVerificationPage
     from notepad_frame import NotepadApplication
     from calendar_frame import CalendarApplication
+    from friends_frame import FriendsPage
 
     print("Wszystko zostalo zaimportowane")
 except ImportError as e:
@@ -70,7 +71,7 @@ class MainApp(tk.Tk):
         self.container.grid_columnconfigure(0, weight=1)
 
 
-        frames_list = [StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage,  EmailVerificationPage, NotepadApplication, CalendarApplication]
+        frames_list = [StartPage, LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage,  EmailVerificationPage, NotepadApplication, CalendarApplication, FriendsPage]
 
         self.frames = {}
         for F in frames_list:
@@ -97,6 +98,11 @@ class MainApp(tk.Tk):
             if user_data:
                 frame.set_current_user(user_data["id"])
             frame.create_calendar_menu()
+        elif page_name == "FriendsPage":  # OBSŁUGA PRZYJACIÓŁ
+            if user_data:
+               frame.set_current_user(user_data["id"])
+            empty_menu = tk.Menu(self)
+            self.config(menu=empty_menu)
         else:
             empty_menu = tk.Menu(self)
             self.config(menu=empty_menu)
