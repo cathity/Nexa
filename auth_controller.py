@@ -1,211 +1,301 @@
-
-from database import get_connection
-from email_utils import send_reset_code, send_verification_email
+import hashlib
 import random
 import string
 import time
+from supabase_client import get_supabase
+
+
+def hash_password(password: str) -> str:
+    """Hashowanie hasła"""
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
 def validate_registration(username, email, password1, password2):
+    """Walidacja danych rejestracji"""
     if len(username) < 5:
-        return False, "Login musi miec co najmniej 5 znaków."
+        return False, "Login musi mieć co najmniej 5 znaków."
 
     if "@" not in email or "." not in email:
         return False, "Adres email jest niepoprawny."
 
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM users WHERE email=?", (email,))
-    if cur.fetchone():
-        conn.close()
-        return False, "Email jest juz uzywany."
-    conn.close()
+    # Sprawdź czy email już istnieje
+    supabase = get_supabase()
+    if supabase:
+        try:
+            result = supabase.table("users") \
+                .select("email") \
+                .eq("email", email) \
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                return False, "Email jest już używany."
+        except Exception as e:
+            print(f"Błąd sprawdzania emaila: {e}")
 
     if password1 != password2:
-        return False, "Hasla nie sa takie same."
+        return False, "Hasła nie są takie same."
 
     if len(password1) < 6:
-        return False, "Haslo musi mieć co najmniej 6 znakow."
+        return False, "Hasło musi mieć co najmniej 6 znaków."
 
     return True, None
 
+
 def generate_verification_code():
+    """Generuje 6-cyfrowy kod weryfikacyjny"""
     return "".join(random.choices(string.digits, k=6))
 
+
 def register_user(username, email, password):
-    conn = get_connection()
-    cur = conn.cursor()
-
+    """Rejestracja użytkownika"""
     try:
-        cur.execute("SELECT id FROM users WHERE username=?", (username,))
-        if cur.fetchone():
-            return False, "Nazwa użytkownika jest juz zajeta."
+        supabase = get_supabase()
+        if not supabase:
+            return False, "Błąd połączenia z bazą danych."
 
-        # czy email istnieje
-        cur.execute("SELECT id FROM users WHERE email=?", (email,))
-        if cur.fetchone():
-            return False, "Email jest już używany."
+        # Hashowanie hasła
+        password_hash = hash_password(password)
 
+        # Generowanie kodu weryfikacyjnego
         verification_code = generate_verification_code()
         expires_at = int(time.time()) + 86400  # 24 godziny
 
-        cur.execute("""INSERT INTO users (username, email, password, email_verification_code, verification_code_expires) 
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (username, email, password, verification_code, expires_at))
-        conn.commit()
+        # Wstawianie użytkownika do bazy
+        result = supabase.table("users").insert({
+            "username": username,
+            "email": email,
+            "password_hash": password_hash,
+            "email_verification_code": verification_code,
+            "verification_code_expires": expires_at,
+            "email_verified": False
+        }).execute()
 
-        # email weryfikacyjny
-        if send_verification_email(email, verification_code):
-            return True, "Rejestracja udana! Sprawdź email i wprowadź kod weryfikacyjny."
-        else:
-            return False, "Rejestracja nieudana. Nie udało się wysłać emaila weryfikacyjnego. Spróbuj ponownie."
+        if result.data and len(result.data) > 0:
+            from email_utils import send_verification_email
+
+            if send_verification_email(email, verification_code):
+                return True, "Rejestracja udana! Sprawdź email i wprowadź kod weryfikacyjny."
+            else:
+                return True, "Rejestracja udana, ale nie udało się wysłać emaila."
+
+        return False, "Błąd podczas rejestracji użytkownika."
 
     except Exception as e:
-        return False, str(e)
-    finally:
-        conn.close()
+        error_msg = str(e)
+        if "duplicate key" in error_msg.lower():
+            if "username" in error_msg:
+                return False, "Nazwa użytkownika jest już zajęta."
+            elif "email" in error_msg:
+                return False, "Email jest już używany."
+        return False, f"Błąd rejestracji: {error_msg}"
 
 
 def verify_email_code(email, code):
-    conn = get_connection()
-    cur = conn.cursor()
-
+    """Weryfikacja kodu email"""
     try:
-        cur.execute("SELECT email_verification_code, verification_code_expires FROM users WHERE email=?", (email,))
-        result = cur.fetchone()
+        supabase = get_supabase()
+        if not supabase:
+            return False, "Błąd połączenia z bazą danych."
 
-        if not result:
+        # Pobierz użytkownika
+        result = supabase.table("users") \
+            .select("email_verification_code, verification_code_expires, email_verified") \
+            .eq("email", email) \
+            .execute()
+
+        if not result.data or len(result.data) == 0:
             return False, "Email nie istnieje."
 
-        stored_code, expires_at = result
+        user_data = result.data[0]
+        stored_code = user_data.get("email_verification_code")
+        expires_at = user_data.get("verification_code_expires")
 
-        #wygaszenie kodu
+        if user_data.get("email_verified"):
+            return True, "Email jest już zweryfikowany."
+
         if expires_at and int(time.time()) > expires_at:
             return False, "Kod weryfikacyjny wygasł. Wyślij nowy."
 
         if stored_code != code:
             return False, "Niepoprawny kod weryfikacyjny."
 
-        #aktywacja konta
-        cur.execute(
-            "UPDATE users SET email_verified=1, email_verification_code=NULL, verification_code_expires=NULL WHERE email=?",
-            (email,))
-        conn.commit()
+        # Aktualizuj jako zweryfikowany
+        update_result = supabase.table("users") \
+            .update({
+            "email_verified": True,
+            "email_verification_code": None,
+            "verification_code_expires": None
+        }) \
+            .eq("email", email) \
+            .execute()
 
-        return True, "Email został pomyślnie zweryfikowany! Możesz się teraz zalogować."
+        return True, "Email został pomyślnie zweryfikowany!"
 
     except Exception as e:
-        return False, str(e)
-    finally:
-        conn.close()
+        return False, f"Błąd weryfikacji: {str(e)}"
+
 
 def resend_verification_code(email):
-    conn = get_connection()
-    cur = conn.cursor()
-
+    """Ponowne wysłanie kodu weryfikacyjnego"""
     try:
-        cur.execute("SELECT id, email_verified FROM users WHERE email=?", (email,))
-        result = cur.fetchone()
+        supabase = get_supabase()
+        if not supabase:
+            return False, "Błąd połączenia z bazą danych."
 
-        if not result:
+        result = supabase.table("users") \
+            .select("id, email_verified") \
+            .eq("email", email) \
+            .execute()
+
+        if not result.data or len(result.data) == 0:
             return False, "Email nie istnieje."
 
-        user_id, email_verified = result
+        user_data = result.data[0]
 
-        if email_verified:
+        if user_data.get("email_verified"):
             return False, "Email jest już zweryfikowany."
 
         new_code = generate_verification_code()
-        expires_at = int(time.time()) + 86400  # 24 godziny
+        expires_at = int(time.time()) + 86400
 
-        cur.execute("UPDATE users SET email_verification_code=?, verification_code_expires=? WHERE email=?",
-                    (new_code, expires_at, email))
-        conn.commit()
+        update_result = supabase.table("users") \
+            .update({
+            "email_verification_code": new_code,
+            "verification_code_expires": expires_at
+        }) \
+            .eq("email", email) \
+            .execute()
 
+        from email_utils import send_verification_email
         if send_verification_email(email, new_code):
-            return True, "Nowy kod weryfikacyjny został wysłany na Twój email."
+            return True, "Nowy kod weryfikacyjny został wysłany."
         else:
-            return False, "Błąd podczas wysyłania kodu weryfikacyjnego."
+            return False, "Błąd podczas wysyłania kodu."
 
     except Exception as e:
-        return False, str(e)
-    finally:
-        conn.close()
+        return False, f"Błąd: {str(e)}"
+
 
 def login_user(username, password):
-    conn = get_connection()
-    cur = conn.cursor()
+    """Logowanie użytkownika"""
+    try:
+        supabase = get_supabase()
+        if not supabase:
+            return None
 
-    cur.execute("SELECT id, username, email_verified FROM users WHERE username=? AND password=?", (username, password))
-    user = cur.fetchone()
+        password_hash = hash_password(password)
 
-    conn.close()
+        result = supabase.table("users") \
+            .select("id, username, email, email_verified") \
+            .or_(f"username.eq.{username},email.eq.{username}") \
+            .eq("password_hash", password_hash) \
+            .execute()
 
-    if user:
+        if result.data and len(result.data) > 0:
+            user = result.data[0]
 
-        user_id, username, email_verified = user
-        return {"id": user_id, "username": username, "verified": bool(email_verified)}
+            user_id = str(user["id"])
+
+            return {
+                "id": user_id,
+                "username": user["username"],
+                "email": user["email"],
+                "verified": bool(user["email_verified"])
+            }
+
+        return None
+
+    except Exception as e:
+        print(f"Błąd logowania: {e}")
         return None
 
 def generate_reset_code():
+    """Generuje 6-cyfrowy kod resetujący"""
     return "".join(random.choices(string.digits, k=6))
 
 
 def set_reset_code(email):
-    conn = get_connection()
-    cur = conn.cursor()
+    """Ustawia kod resetujący hasło"""
+    try:
+        supabase = get_supabase()
+        if not supabase:
+            return False, "Błąd połączenia z bazą danych."
 
-    cur.execute("SELECT id FROM users WHERE email=?", (email,))
-    if not cur.fetchone():
-        conn.close()
-        return False, "Email nie istnieje w naszej bazie danych."
+        result = supabase.table("users") \
+            .select("id") \
+            .eq("email", email) \
+            .execute()
 
-    code = generate_reset_code()
+        if not result.data or len(result.data) == 0:
+            return False, "Email nie istnieje."
 
-    # timestamp wygaśnięcia kodu
-    expires_at = int(time.time()) + 3600
+        user_id = result.data[0]["id"]
 
-    cur.execute("UPDATE users SET reset_code=?, reset_code_expires=? WHERE email=?",
-                (code, expires_at, email))
-    conn.commit()
-    conn.close()
+        code = generate_reset_code()
+        expires_at = int(time.time()) + 3600
 
-    # email z kodem
-    if send_reset_code(email, code):
-        return True, "Kod resetujący został wysłany na podany adres email."
-    else:
-        return False, "Błąd podczas wysyłania kodu resetującego. Spróbuj ponownie później."
+        update_result = supabase.table("users") \
+            .update({
+            "reset_code": code,
+            "reset_code_expires": expires_at
+        }) \
+            .eq("id", user_id) \
+            .execute()
+
+        from email_utils import send_reset_code
+        if send_reset_code(email, code):
+            return True, "Kod resetujący został wysłany."
+        else:
+            return False, "Błąd podczas wysyłania kodu."
+
+    except Exception as e:
+        return False, f"Błąd: {str(e)}"
 
 
 def reset_password(email, code, new_password):
-    conn = get_connection()
-    cur = conn.cursor()
+    """Resetowanie hasła z użyciem kodu"""
+    try:
+        supabase = get_supabase()
+        if not supabase:
+            return False, "Błąd połączenia z bazą danych."
 
-    cur.execute("SELECT reset_code, reset_code_expires FROM users WHERE email=?", (email,))
-    row = cur.fetchone()
+        result = supabase.table("users") \
+            .select("id, reset_code, reset_code_expires") \
+            .eq("email", email) \
+            .execute()
 
-    if not row:
-        conn.close()
-        return False, "Email nie istnieje."
+        if not result.data or len(result.data) == 0:
+            return False, "Email nie istnieje."
 
-    stored_code, expires_at = row
+        user_data = result.data[0]
+        stored_code = user_data.get("reset_code")
+        expires_at = user_data.get("reset_code_expires")
 
-    # sprawdzenie czy kod wygasł
-    if expires_at and int(time.time()) > expires_at:
-        conn.close()
-        return False, "Kod resetujący wygasł. Wygeneruj nowy kod."
+        if expires_at and int(time.time()) > expires_at:
+            return False, "Kod resetujący wygasł."
 
-    if stored_code != code:
-        conn.close()
-        return False, "Kod resetu niepoprawny."
+        if stored_code != code:
+            return False, "Kod resetu niepoprawny."
 
-    if len(new_password) < 6:
-        conn.close()
-        return False, "Hasło musi mieć co najmniej 6 znaków."
+        if len(new_password) < 6:
+            return False, "Hasło musi mieć co najmniej 6 znaków."
 
-    cur.execute("UPDATE users SET password=?, reset_code=NULL, reset_code_expires=NULL WHERE email=?",
-                (new_password, email))
-    conn.commit()
-    conn.close()
+        new_password_hash = hash_password(new_password)
 
-    return True, "Hasło zostało pomyślnie zmienione!"
+        update_result = supabase.table("users") \
+            .update({
+            "password_hash": new_password_hash,
+            "reset_code": None,
+            "reset_code_expires": None
+        }) \
+            .eq("email", email) \
+            .eq("reset_code", code) \
+            .execute()
+
+        if update_result.data:
+            return True, "Hasło zostało pomyślnie zmienione!"
+        else:
+            return False, "Nie udało się zmienić hasła."
+
+    except Exception as e:
+        return False, f"Błąd resetowania hasła: {str(e)}"
