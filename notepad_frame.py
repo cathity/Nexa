@@ -1,4 +1,4 @@
-﻿import tkinter as tk
+import tkinter as tk
 from tkinter import font as tkfont, messagebox, scrolledtext, filedialog  #######
 import json
 import os
@@ -14,6 +14,35 @@ except ImportError:
     HAS_PILLOW = False
     print("Brak biblioteki Pillow. Obrazy nie będą działać. Zainstaluj: pip install Pillow")
 
+#  KONFIGURACJA OCR
+try:
+    import pytesseract
+
+    HAS_OCR = True
+
+    # Python musi wiedzieć, gdzie jest plik tesseract.exe
+    # Sprawdzamy typowe ścieżki instalacji na Windows
+    possible_paths = [
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        r"C:\Users\\" + os.getlogin() + r"\AppData\Local\Tesseract-OCR\tesseract.exe"
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    ]
+
+
+    found_tesseract = False
+    for path in possible_paths:
+        if os.path.exists(path):
+            pytesseract.pytesseract.tesseract_cmd = path
+            found_tesseract = True
+            break
+    if not found_tesseract:
+        print("UWAGA: Nie znaleziono tesseract.exe w typowych folderach. OCR może nie działać.")
+
+except ImportError:
+    HAS_OCR = False
+    print("Brak biblioteki pytesseract. Zainstaluj: pip install pytesseract")
+
 NOTES_FILE = "notes.json"
 IMAGES_DIR = "images"
 
@@ -27,7 +56,7 @@ class NotepadApplication(tk.Frame):
         self.current_note_index = None
         self.displayed_notes_indices = []
 
-        # ZMIENNE DO OBRAZÓW 
+        # ZMIENNE DO OBRAZÓW
         self.images_cache = {}
         self.pil_images = {}
         self.in_preview_mode = False
@@ -39,7 +68,7 @@ class NotepadApplication(tk.Frame):
         self.paned_window = tk.PanedWindow(self, orient="horizontal", sashrelief="raised")
         self.paned_window.pack(fill="both", expand=True)
 
-        # --- Ramka LEWA (Lista Notatek i Wyszukiwanie) ---
+        # Ramka LEWA (Lista Notatek i Wyszukiwanie)
         self.list_frame = tk.Frame(self.paned_window, relief="solid", bd=1)
         self.list_frame.pack(fill="both", expand=False)
 
@@ -68,11 +97,11 @@ class NotepadApplication(tk.Frame):
 
         self.paned_window.add(self.list_frame)
 
-        # --- Ramka PRAWA (Edytor) ---
+        #  Ramka PRAWA (Edytor)
         self.editor_frame = tk.Frame(self.paned_window)
         self.editor_frame.pack(fill="both", expand=True)
 
-        # --- Pasek tytułu ---
+        #  Pasek tytułu
         top_bar = tk.Frame(self.editor_frame, bg="white")
         top_bar.pack(fill="x", padx=10, pady=5)
 
@@ -116,6 +145,8 @@ class NotepadApplication(tk.Frame):
         settings_menu.add_separator()
 
         settings_menu.add_command(label="Wstaw obraz (z pliku)", command=self.insert_image)
+        #  NOWA OPCJA OCR
+        settings_menu.add_command(label="Zczytaj tekst z obrazu (OCR)", command=self.ocr_from_image)
         settings_menu.add_separator()
 
         # Prawidłowa pozycja dla Kalendarza
@@ -153,7 +184,17 @@ class NotepadApplication(tk.Frame):
     def update_theme(self, colors):
         '''Aktualizuje wszystkie kolory w tej ramce'''
 
-        # NIE próbuj zmieniać etykiety menu tutaj - to robimy w create_notepad_menu()
+        if self.controller.current_theme == "light":
+            theme_label_text = "Zmień na motyw ciemny"
+        else:
+            theme_label_text = "Zmień na motyw jasny"
+
+        if hasattr(self, 'settings_menu'):
+            try:
+                # Indeks 8 to zmiana motywu (przesunął się, bo doszła opcja OCR)
+                self.settings_menu.entryconfig(8, label=theme_label_text)
+            except Exception:
+                pass
 
         if hasattr(self.controller, 'menubar'):
             self.controller.menubar.config(bg=colors["bg_primary"], fg=colors["fg_primary"])
@@ -166,7 +207,7 @@ class NotepadApplication(tk.Frame):
         self.list_frame.config(bg=colors["bg_primary"])
         self.list_label.config(bg=colors["bg_primary"], fg=colors["fg_primary"])
 
-        # --- Aktualizacja kolorów wyszukiwarki ---
+        #  Aktualizacja kolorów wyszukiwarki
         self.search_frame.config(bg=colors["bg_primary"])
         for child in self.search_frame.winfo_children():
             if isinstance(child, tk.Label):
@@ -185,24 +226,35 @@ class NotepadApplication(tk.Frame):
         self.notepad_text.config(bg=colors["entry_bg"], fg=colors["entry_fg"],
                                  insertbackground=colors["fg_primary"])
 
+    # W notepad_frame.py ZMIEŃ te funkcje:
 
-    # --- FUNKCJE OBSŁUGI NOTATEK ---
     def load_notes_from_file(self):
         if not self.current_user_id:
             self.all_notes = []
             return
 
-        if os.path.exists(NOTES_FILE):
-            try:
-                with open(NOTES_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self.all_notes = [
-                        note for note in data.get("notes", [])
-                        if note.get("user_id") == self.current_user_id
-                    ]
-            except json.JSONDecodeError:
-                self.all_notes = []
-        else:
+        from supabase_client import get_supabase
+        supabase = get_supabase()
+
+        if not supabase:
+            self.all_notes = []
+            return
+
+        try:
+            # Upewnij się że user_id jest stringiem
+            user_id_str = str(self.current_user_id)
+
+            response = supabase.table("notes") \
+                .select("*") \
+                .eq("user_id", user_id_str) \
+                .execute()
+
+            self.all_notes = response.data or []
+
+            print(f"DEBUG: Załadowano {len(self.all_notes)} notatek dla user_id: {user_id_str}")
+
+        except Exception as e:
+            print(f"Błąd ładowania notatek: {e}")
             self.all_notes = []
 
     def save_notes_to_file(self):
@@ -210,31 +262,68 @@ class NotepadApplication(tk.Frame):
             messagebox.showerror("Błąd", "Nie jesteś zalogowany!")
             return False
 
-        all_users_notes = []
-        if os.path.exists(NOTES_FILE):
-            try:
-                with open(NOTES_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    all_users_notes = data.get("notes", [])
-            except json.JSONDecodeError:
-                all_users_notes = []
+        from supabase_client import get_supabase
+        supabase = get_supabase()
 
-        all_users_notes = [
-            note for note in all_users_notes
-            if note.get("user_id") != self.current_user_id
-        ]
+        if not supabase:
+            messagebox.showerror("Błąd", "Brak połączenia z bazą danych!")
+            return False
 
-        for note in self.all_notes:
-            note["user_id"] = self.current_user_id
-            all_users_notes.append(note)
+        title = self.title_entry.get()
+        content = self.serialize_content_with_images()
+
+        if not title:
+            messagebox.showwarning("Brak tytułu", "Notatka musi mieć tytuł!")
+            return False
+
+        # Upewnij się że user_id jest stringiem
+        user_id_str = str(self.current_user_id)
+
+        note_data = {
+            "user_id": user_id_str,
+            "title": title,
+            "content": content
+        }
 
         try:
-            with open(NOTES_FILE, "w", encoding="utf-8") as f:
-                json.dump({"notes": all_users_notes}, f, indent=4, ensure_ascii=False)
+            if self.current_note_index is not None and self.current_note_index < len(self.all_notes):
+                # Aktualizacja istniejącej notatki
+                note = self.all_notes[self.current_note_index]
+                if "id" in note:
+                    response = supabase.table("notes") \
+                        .update(note_data) \
+                        .eq("id", note["id"]) \
+                        .execute()
+
+                    print(f"DEBUG: Zaktualizowano notatkę ID: {note['id']}")
+                else:
+                    # Jeśli nie ma ID, dodaj jako nową
+                    response = supabase.table("notes").insert(note_data).execute()
+                    if response.data:
+                        note_data["id"] = response.data[0]["id"]
+                        self.all_notes[self.current_note_index] = note_data
+
+                        print(f"DEBUG: Dodano nową notatkę z ID: {note_data['id']}")
+            else:
+
+                response = supabase.table("notes").insert(note_data).execute()
+                if response.data:
+                    note_data["id"] = response.data[0]["id"]
+                    self.all_notes.append(note_data)
+                    self.current_note_index = len(self.all_notes) - 1
+
+                    print(f"DEBUG: Utworzono nową notatkę ID: {note_data['id']}")
+
+            self.search_var.set("")
+            self.populate_notes_list()
+            messagebox.showinfo("Sukces", f"Notatka '{title}' zapisana!")
             return True
+
         except Exception as e:
-            messagebox.showerror("Błąd zapisu", f"Nie udało się zapisać: {e}")
+            print(f"Pełny błąd zapisu: {e}")  # Debug
+            messagebox.showerror("Błąd", f"Nie udało się zapisać: {str(e)}")
             return False
+
 
     def filter_notes(self, *args):
         search_term = self.search_var.get().lower()
@@ -316,7 +405,7 @@ class NotepadApplication(tk.Frame):
                 pass
             messagebox.showinfo("Zapisano", f"Notatka '{title}' została zapisana.")
 
-    # --- OBSŁUGA OBRAZKÓW (Skalowanie i Wklejanie) ---
+    # OBSŁUGA OBRAZKÓW (Skalowanie i Wklejanie)
 
     def render_content_with_images(self, content):
         self.notepad_text.delete("1.0", tk.END)
@@ -466,4 +555,45 @@ class NotepadApplication(tk.Frame):
                     messagebox.showerror("Błąd", f"Nie udało się skopiować obrazu: {e}")
                     return
 
-            self.insert_image_direct(filename) 
+            self.insert_image_direct(filename)
+
+    #  OCR Z OBRAZU
+    def ocr_from_image(self):
+        '''Zczytuje tekst z wybranego pliku graficznego (OCR)'''
+        if not HAS_OCR:
+            messagebox.showerror("Błąd OCR",
+                                 "Nie znaleziono biblioteki pytesseract lub silnika Tesseract.\n\nUpewnij się, że zainstalowałeś program Tesseract-OCR.")  #######
+            return
+
+            # Wybór pliku
+        file_path = filedialog.askopenfilename(
+            title="Wybierz obraz do zczytania tekstu",
+            filetypes=[("Obrazy", "*.png;*.jpg;*.jpeg;*.bmp"), ("Wszystkie pliki", "*.*")]
+        )
+
+        if file_path:
+            try:
+                # Zmieniamy kursor na "czekanie"
+                self.config(cursor="wait")
+                self.update()
+
+                img = Image.open(file_path)
+
+                # Próba zczytania (najpierw polski, potem domyślny)
+                try:
+                    text = pytesseract.image_to_string(img, lang='pol')
+                except pytesseract.TesseractError:
+                    text = pytesseract.image_to_string(img)
+
+                    # Wstawiamy wynik
+                if text.strip():
+                    self.notepad_text.insert(tk.INSERT,
+                                             f"\n--- [OCR] Tekst z obrazu: ---\n{text}\n---------------------------\n")
+                    messagebox.showinfo("Sukces", "Tekst został zczytany!")
+                else:
+                    messagebox.showwarning("Info", "Nie udało się znaleźć tekstu na tym obrazku.")
+
+            except Exception as e:
+                messagebox.showerror("Błąd", f"Wystąpił błąd podczas OCR: {e}")
+            finally:
+                self.config(cursor="")
